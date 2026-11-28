@@ -239,6 +239,19 @@ function sodaScrypt(pw, salt, N, r, p, dkLen, subtle) {
   function frame() { return new Promise(function (ok) { requestAnimationFrame(function () { setTimeout(ok, 30); }); }); }
   function ss(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch (e) {} return null; }
   function b64ToBytes(b64) { var bin = atob(b64), n = bin.length, a = new Uint8Array(n); for (var i = 0; i < n; i++) a[i] = bin.charCodeAt(i); return a; }
+  /* 관리자 기기: 주소 뒤에 ?admin=on 으로 한 번 열어 등록하고(?admin=off 로 해제), 21–24 챕터는
+     처음 한 번 입력한 비밀번호를 이 기기에 기억해 두었다가 이후 입력 없이 연다. 학생 기기에는 아무것도 저장되지 않는다. */
+  var ADMIN_FLAG = 'soda-b1-admin', ADMIN_PW = 'soda-b1-apw-', ADMIN_FROM = 21, ADMIN_TO = 24;
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; }
+  function isAdmin() { return ls(ADMIN_FLAG) === '1'; }
+  function adminChapter(m) { var n = parseInt(m.no, 10); return n >= ADMIN_FROM && n <= ADMIN_TO; }
+  (function () {
+    var q = location.search.match(/[?&]admin=(on|off)\b/);
+    if (!q) return;
+    if (q[1] === 'on') ls(ADMIN_FLAG, '1');
+    else { ls(ADMIN_FLAG, null); for (var n = ADMIN_FROM; n <= ADMIN_TO; n++) ls(ADMIN_PW + n, null); }
+    try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+  })();
   var sharedCache = {};
   function getBytes(name) {
     return fetch(encodeURI(name), { cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error('fetch'); return r.arrayBuffer(); }).then(function (b) { return new Uint8Array(b); });
@@ -522,9 +535,11 @@ function sodaScrypt(pw, salt, N, r, p, dkLen, subtle) {
     try {
       var html = await decrypt(m, pass);
       ss('pw' + m.no, pass);
+      if (isAdmin() && adminChapter(m)) ls(ADMIN_PW + parseInt(m.no, 10), pass);
       say(''); openReader(html);
     } catch (e) {
       ss('pw' + m.no, '');
+      if (e && e.wrong && adminChapter(m)) ls(ADMIN_PW + parseInt(m.no, 10), null);
       if (root.getAttribute('data-page') !== 'lock') { openLock(m); }
       if (e && e.wrong) { say('비밀번호가 맞지 않습니다. 다시 입력해 주세요.', true); $('pw').classList.add('bad'); }
       else if (e && e.message === 'file') say('이 파일은 웹 주소(GitHub Pages)에서 열어야 합니다. 내려받은 파일로는 열리지 않습니다.', true);
@@ -547,7 +562,7 @@ function sodaScrypt(pw, salt, N, r, p, dkLen, subtle) {
   $('toList').addEventListener('click', function () { show('list'); });
   document.querySelectorAll('.toc button').forEach(function (b) {
     b.addEventListener('click', function () {
-      var m = META[+b.getAttribute('data-i')], saved = ss('pw' + m.no);
+      var m = META[+b.getAttribute('data-i')], saved = ss('pw' + m.no) || (isAdmin() && adminChapter(m) ? ls(ADMIN_PW + parseInt(m.no, 10)) : '');
       if (saved) { openLock(m); tryOpen(m, saved); } else openLock(m);
     });
   });
